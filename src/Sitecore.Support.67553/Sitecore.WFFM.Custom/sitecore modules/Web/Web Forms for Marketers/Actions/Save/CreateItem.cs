@@ -18,6 +18,7 @@ namespace Sitecore.Support.Form.Submit
   using Sitecore.Form.Core.Configuration;
   using Sitecore.Form.Core.Utility;
   using Sitecore.Forms.Core.Data;
+  using Sitecore.Resources.Media;
   using Sitecore.SecurityModel;
   using Sitecore.WFFM.Abstractions.Actions;
   using Sitecore.WFFM.Abstractions.Dependencies;
@@ -78,39 +79,49 @@ namespace Sitecore.Support.Form.Submit
 
       Item target = StaticSettings.MasterDatabase.GetItem(Destination);
       Error.AssertNotNull(target, string.Format(resourceManager.GetString("NOT_FOUND_ITEM"), Destination));
-
       using (new Workflows.WorkflowContextStateSwitcher(Workflows.WorkflowContextState.Enabled))
       {
         Item item = ItemManager.CreateItem(templateItem.Name, target, templateItem.ID);
 
         var mapFields = StringUtil.ParseNameValueCollection(Mapping, '|', '=');
-
+        
         item.Editing.BeginEdit();
         foreach (AdaptedControlResult result in fields)
         {
-            if (mapFields[result.FieldID] != null)
+          if (mapFields[result.FieldID] != null)
+          {
+            string itemFieldID = mapFields[result.FieldID];
+            if (item.Fields[itemFieldID] != null)
             {
-                string itemFieldID = mapFields[result.FieldID];
-                if (item.Fields[itemFieldID] != null)
-                {
-                    var fieldItem = new FieldItem(StaticSettings.ContextDatabase.GetItem(result.FieldID));
-                    string value = result.Value;
-                    value = string.Join("|", new List<string>(FieldReflectionUtil.GetAdaptedListValue(fieldItem, value, false)).ToArray());
+              string str2 = StaticSettings.MasterDatabase.GetItem(new ID(itemFieldID)).Fields["Type"].Value;
+              if ((str2 != null) && (str2.Equals("Image", StringComparison.InvariantCultureIgnoreCase) || str2.Equals("File", StringComparison.InvariantCultureIgnoreCase)))
+              {
+                string str3 = result.Value.Split(new char[] { '{', '}' })[1];
+                string mediaPath = StaticSettings.MasterDatabase.GetItem(new ID(str3)).Paths.MediaPath;
+                string str5 = string.Format("{1}{0}.ashx", str3.Replace("-", ""), MediaManager.MediaLinkPrefix);
+                item.Fields[itemFieldID].Value = string.Format("<{3} mediaid=\"{{{0}}}\" mediapath=\"{1}\" src=\"{2}\" />", new object[] { str3, mediaPath, str5, str2.ToLowerInvariant() });
+              }
+              else
+              {
+                var fieldItem = new FieldItem(StaticSettings.ContextDatabase.GetItem(result.FieldID));
+                string value = result.Value;
+                value = string.Join("|", new List<string>(FieldReflectionUtil.GetAdaptedListValue(fieldItem, value, false)).ToArray());
 
-                    item.Fields[itemFieldID].Value = value;
-                    if (itemFieldID == Sitecore.FieldIDs.DisplayName.ToString())
-                    {
-                        item.Name = Data.Items.ItemUtil.ProposeValidItemName(result.Value);
-                    }
-                }
-                else
-                {
-                    DependenciesManager.Logger.Warn(string.Format("The Create Item action : the template does not contain field: {0}", itemFieldID), this);
-                }
+                item.Fields[itemFieldID].Value = value;
+              }
+              if (itemFieldID == Sitecore.FieldIDs.DisplayName.ToString())
+              {
+                item.Name = Data.Items.ItemUtil.ProposeValidItemName(result.Value);
+              }
             }
+            else
+            {
+              DependenciesManager.Logger.Warn(string.Format("The Create Item action : the template does not contain field: {0}", itemFieldID), this);
+            }
+          }
         }
         item.Editing.EndEdit();
-      } 
+      }
     }
 
     public bool CheckSecurity
